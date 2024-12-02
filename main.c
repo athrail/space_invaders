@@ -1,3 +1,4 @@
+#include <SDL2/SDL_rect.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,11 +11,12 @@
 #define FRAME_SLEEP 16
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 800
-#define BULLET_COUNT 1
+#define BULLET_COUNT 10
 
 #define ENEMY_WIDTH 30
 #define ENEMY_HEIGHT 20
 #define ENEMY_PER_LINE 10
+#define ENEMY_COUNT ENEMY_PER_LINE * 5
 
 #define BARRIER_COUNT 4
 #define BARRIER_WIDTH 70
@@ -22,10 +24,11 @@
 
 #define PLAYER_WIDTH 40
 #define PLAYER_HEIGHT 30
-#define SHOOT_DELAY 3000
+#define SHOOT_DELAY 300
 
 typedef struct {
   SDL_Rect rect;
+  bool     dead;
 } Enemy_t;
 
 typedef struct {
@@ -110,8 +113,6 @@ void spawn_bullet(App_t *app, SDL_Point loc, int velocity) {
   app->bullets[app->bullet_id].rect = (SDL_Rect){loc.x, loc.y, 5, 10};
   app->bullets[app->bullet_id].velocity = velocity;
   app->bullet_id = (app->bullet_id + 1) % BULLET_COUNT;
-
-  DEBUG("bullet_id after spawn: %d", app->bullet_id);
 }
 
 void handle_input(App_t *app) {
@@ -133,7 +134,6 @@ void handle_input(App_t *app) {
             break;
           case SDLK_SPACE:
             if (app->player->shooting_timer <= 0) {
-              DEBUG("Pressed shot");
               app->player->shooting_timer = SHOOT_DELAY;
               SDL_Point loc = {app->player->rect.x + (app->player->rect.w - 5) / 2, app->player->rect.y - 10};
               spawn_bullet(app, loc, -5);
@@ -148,6 +148,10 @@ void handle_input(App_t *app) {
 }
 
 void update(App_t *app) {
+  Bullet_t *bullet = NULL;
+  Barrier_t *barrier = NULL;
+  Enemy_t *enemy = NULL;
+
   handle_input(app);
 
   if (app->player->shooting_timer) {
@@ -155,12 +159,47 @@ void update(App_t *app) {
   }
 
   for (size_t i = 0; i < BULLET_COUNT; i++) {
-    if (app->bullets[i].active) {
-      app->bullets[i].rect.y += app->bullets[i].velocity;
-      if ((app->bullets[i].rect.y > WINDOW_HEIGHT) || (app->bullets[i].rect.y < 0)) {
-        app->bullets[i].active = false;
+    bullet = &app->bullets[i];
+    if (bullet->active) {
+      bullet->rect.y += bullet->velocity;
+      if ((bullet->rect.y > WINDOW_HEIGHT) || (bullet->rect.y < 0)) {
+        bullet->active = false;
       }
     }
+  }
+
+  // Check bullet collisions between player, enemies or barriers
+  for (size_t i = 0; i < BULLET_COUNT; i++) {
+    bullet = &app->bullets[i];
+    if (!bullet->active) continue;
+
+    for (size_t barrier_index = 0; barrier_index < BARRIER_COUNT; barrier_index++) {
+      barrier = &app->barriers[barrier_index];
+      if ((barrier->level < Destroyed) && SDL_HasIntersection(&barrier->rect, &bullet->rect)) {
+        barrier->level += 1;
+        barrier->rect.h -= BARRIER_HEIGHT / Destroyed;
+        barrier->rect.y += BARRIER_HEIGHT / Destroyed;
+        bullet->active = false;
+        continue;
+      }
+    }
+
+    if (bullet->velocity < 0) {
+      for (size_t enemy_index = 0; enemy_index < ENEMY_COUNT; enemy_index++) {
+        enemy = &app->enemies[enemy_index];
+        if (enemy->dead) continue;
+
+        if (SDL_HasIntersection(&enemy->rect, &bullet->rect)) {
+          DEBUG("Enemy hit!")
+          enemy->dead = true;
+          bullet->active = false;
+          break;
+        }
+      }
+    } else {
+      // Player collision detection
+    }
+
   }
 }
 
@@ -168,13 +207,17 @@ void render(App_t *app) {
   // Enemies rendering
   SDL_SetRenderDrawColor(app->renderer, 255, 255, 255, 255);
   for (size_t i = 0; i < app->enemy_count; i++) {
-    SDL_RenderFillRect(app->renderer, &app->enemies[i].rect);
+    if (!app->enemies[i].dead) {
+      SDL_RenderFillRect(app->renderer, &app->enemies[i].rect);
+    }
   }
 
   // Barrier rendering
   SDL_SetRenderDrawColor(app->renderer, 0, 255, 0, 255);
   for (size_t i = 0; i < BARRIER_COUNT; i++) {
-    SDL_RenderFillRect(app->renderer, &app->barriers[i].rect);
+    if (app->barriers[i].level < Destroyed) {
+      SDL_RenderFillRect(app->renderer, &app->barriers[i].rect);
+    }
   }
 
   // Player rendering
@@ -249,7 +292,7 @@ void init_enemies(App_t *app, unsigned int count) {
 }
 
 void init_app(App_t *app) {
-  init_enemies(app, ENEMY_PER_LINE * 5);
+  init_enemies(app, ENEMY_COUNT);
   init_barriers(app);
   init_player(app);
 
