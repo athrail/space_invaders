@@ -2,27 +2,35 @@
 #include <stdlib.h>
 #include <raylib.h>
 
+#define ARR_LEN(a) (sizeof(a)/sizeof(a[0]))
+#define DEBUG(format, ...) printf("%s:%d:%s() " format "\n", __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
+
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 800
+#define WINDOW_PADDING 32
 
 #define BULLET_COUNT 10
-#define SHOOT_DELAY 1.5
-#define BULLET_VELOCITY 200
-#define PLAYER_VELOCITY 200
+#define SHOOT_DELAY 0.7
+#define BULLET_VELOCITY 800
+#define PLAYER_VELOCITY 300
 #define SCORE_PER_KILL 100
+#define MOVE_FREQ 15
+#define SHOOT_FREQ 60
 
 #define ENEMY_PER_LINE 10
 #define ENEMY_LINES 5
 #define ENEMY_COUNT ENEMY_PER_LINE * ENEMY_LINES
+#define ENEMY_SPACING 2
 #define BARRIER_COUNT 4
 #define BARRIER_WIDTH 70.0
 #define BARRIER_HEIGHT 50.0
 
-#define SPRITE_WIDTH 16
+#define RENDER_SCALE 4.0
+#define SPRITE_WIDTH 12
 #define SPRITE_HEIGHT 8
-#define PLAYER_SPRITE_X 1.0
+#define PLAYER_SPRITE_X 3.0
 #define PLAYER_SPRITE_Y 49.0
-#define ENEMY_SPRITE_X 1.0
+#define ENEMY_SPRITE_X 3.0
 #define ENEMY_SPRITE_Y 1.0
 
 typedef struct {
@@ -68,6 +76,7 @@ typedef struct {
   Texture2D sprites;
   unsigned int moving_line;
   int shift_direction;
+  Vector2 shift_offset;
 } App_t;
 
 int frames_counter = 0;
@@ -75,9 +84,9 @@ int frames_counter = 0;
 void init_player(App_t *app) {
   app->player.rect = (Rectangle){
     (WINDOW_WIDTH - SPRITE_WIDTH) / 2,
-    WINDOW_HEIGHT - 10 - SPRITE_HEIGHT,
-    SPRITE_WIDTH,
-    SPRITE_HEIGHT
+    WINDOW_HEIGHT - 10 - (SPRITE_HEIGHT * RENDER_SCALE),
+    SPRITE_WIDTH * RENDER_SCALE,
+    SPRITE_HEIGHT * RENDER_SCALE
   };
 
   app->player.sprite_rect = (Rectangle){
@@ -113,15 +122,12 @@ void init_enemies(App_t *app) {
     exit(1);
   }
 
-  // Add maybe some static initial offset to center enemies on screen
-  int spacing = (WINDOW_WIDTH - 100 - (ENEMY_PER_LINE * SPRITE_WIDTH)) / (ENEMY_PER_LINE + 1);
-
   for(size_t i = 0; i < ENEMY_COUNT; i++) {
     app->enemies[i].rect = (Rectangle){
-      ((i % ENEMY_PER_LINE) + 1) * spacing + (i % ENEMY_PER_LINE) * SPRITE_WIDTH,
-      20 + ((i / ENEMY_PER_LINE) + 1) * spacing + (i / ENEMY_PER_LINE) * SPRITE_HEIGHT,
-      SPRITE_WIDTH,
-      SPRITE_HEIGHT
+      WINDOW_PADDING + (i % ENEMY_PER_LINE) + (i % ENEMY_PER_LINE) * (SPRITE_WIDTH * RENDER_SCALE),
+      80 + (i / ENEMY_PER_LINE) * 20 + (i / ENEMY_PER_LINE) * (SPRITE_HEIGHT * RENDER_SCALE),
+      SPRITE_WIDTH * RENDER_SCALE,
+      SPRITE_HEIGHT * RENDER_SCALE
     };
 
     app->enemies[i].sprite_rect = (Rectangle){
@@ -132,7 +138,6 @@ void init_enemies(App_t *app) {
     };
   }
 }
-
 
 void init_app(App_t *app) {
   app->font = LoadFontEx("./arcade.ttf", 20, NULL, 0);
@@ -159,6 +164,7 @@ void init_app(App_t *app) {
   }
 
   app->shift_direction = 1;
+  app->lives = 3;
 }
 
 void spawn_bullet(App_t *app, Vector2 loc, int velocity) {
@@ -185,17 +191,8 @@ void handle_input(App_t *app, float delta) {
   }
 }
 
-void update(App_t *app) {
-  float delta = GetFrameTime();
+void move_bullets(App_t *app, float delta) {
   Bullet_t *bullet = NULL;
-  Barrier_t *barrier = NULL;
-  Enemy_t *enemy = NULL;
-
-  handle_input(app, delta);
-
-  if (app->player.shooting_timer) {
-    app->player.shooting_timer -= delta;
-  }
 
   for (size_t i = 0; i < BULLET_COUNT; i++) {
     bullet = &app->bullets[i];
@@ -206,45 +203,37 @@ void update(App_t *app) {
       bullet->active = false;
     }
   }
+}
 
-  // Enemy movement logic
-  if (frames_counter > 30) {
-    frames_counter = 0;
+void restart(App_t *app) {
 
-    if (app->shift_direction > 0) {
-      for (size_t i = ENEMY_PER_LINE - 1; i >= 0; i--) {
-        enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
-        if (enemy->dead) continue;
+}
 
-        float destination = enemy->rect.x + SPRITE_WIDTH * app->shift_direction;
-        if (destination > WINDOW_WIDTH) {
-          app->shift_direction *= -1;
-          break;
-        }
-      }
-    } else {
-      for (size_t i = 0; i < ENEMY_PER_LINE; i++) {
-        enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
-        if (enemy->dead) continue;
+void move_enemies(App_t *app) {
+  Enemy_t *enemy = NULL;
 
-        float destination = enemy->rect.x + SPRITE_WIDTH * app->shift_direction;
-        if (destination < 0) {
-          app->shift_direction *= -1;
-          break;
-        }
-      }
-    }
-
-    for (size_t i = 0; i < ENEMY_PER_LINE; i++) {
-      enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
-      if (enemy->dead) continue;
-      enemy->rect.x += SPRITE_WIDTH * app->shift_direction;
+  if (frames_counter % MOVE_FREQ == 0) {
+    for (size_t enemy_index = 0; enemy_index < ENEMY_PER_LINE; enemy_index++) {
+      enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + enemy_index];
+      enemy->rect.x += (enemy->rect.width / 2.0) * app->shift_direction;
     }
 
     app->moving_line = (app->moving_line + 1) % ENEMY_LINES;
-  }
 
-  // Check bullet collisions between player, enemies or barriers
+    if (app->moving_line == 0) {
+      if ((app->enemies[ENEMY_PER_LINE-1].rect.x + app->enemies[ENEMY_PER_LINE-1].rect.width >= WINDOW_WIDTH - WINDOW_PADDING) ||
+          (app->enemies[0].rect.x <= WINDOW_PADDING)) {
+        app->shift_direction *= -1;
+      }
+    }
+  }
+}
+
+void check_collisions(App_t *app) {
+  Bullet_t *bullet = NULL;
+  Barrier_t *barrier = NULL;
+  Enemy_t *enemy = NULL;
+
   for (size_t i = 0; i < BULLET_COUNT; i++) {
     bullet = &app->bullets[i];
     if (!bullet->active) continue;
@@ -273,9 +262,44 @@ void update(App_t *app) {
         }
       }
     } else {
-      // Player collision detection
+      if (CheckCollisionRecs(bullet->rect, app->player.rect)) {
+        app->lives -= 1;
+        restart(app);
+        bullet->active = false;
+        continue;
+      }
     }
   }
+}
+
+void enemy_shoot(App_t *app) {
+  Enemy_t *enemy = NULL;
+
+  if (frames_counter % SHOOT_FREQ == 0) {
+    // todo: potentially infinite loop if all enemies are dead?
+    do {
+      enemy = &app->enemies[rand() % ENEMY_COUNT];
+      if (enemy->dead) continue;
+
+      Vector2 loc = (Vector2){enemy->rect.x + (enemy->rect.width - 5) / 2, enemy->rect.y - 10};
+      spawn_bullet(app, loc, BULLET_VELOCITY / 2.0);
+      break;
+    } while(true);
+  }
+}
+
+void update(App_t *app) {
+  float delta = GetFrameTime();
+
+  if (app->player.shooting_timer) {
+    app->player.shooting_timer -= delta;
+  }
+
+  handle_input(app, delta);
+  move_bullets(app, delta);
+  move_enemies(app);
+  check_collisions(app);
+  enemy_shoot(app);
 
   sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
 }
@@ -287,8 +311,8 @@ void render(App_t *app) {
 
   DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
 
-  Vector2 pos = {app->player.rect.x, app->player.rect.y};
-  DrawTextureRec(app->sprites, app->player.sprite_rect, pos, WHITE);
+  Rectangle dest = {app->player.rect.x, app->player.rect.y, SPRITE_WIDTH * RENDER_SCALE, SPRITE_HEIGHT * RENDER_SCALE};
+  DrawTexturePro(app->sprites, app->player.sprite_rect, dest, (Vector2){0.0, 0.0}, 0.0, WHITE);
 
   for (size_t i = 0; i < BARRIER_COUNT; i++) {
     Barrier_t *barrier = &app->barriers[i];
@@ -300,8 +324,8 @@ void render(App_t *app) {
   for (size_t i = 0; i < ENEMY_COUNT; i++) {
     Enemy_t *enemy = &app->enemies[i];
     if (!enemy->dead) {
-      Vector2 pos = {enemy->rect.x, enemy->rect.y};
-      DrawTextureRec(app->sprites, enemy->sprite_rect, pos, WHITE);
+      Rectangle dest = {enemy->rect.x, enemy->rect.y, SPRITE_WIDTH * RENDER_SCALE, SPRITE_HEIGHT * RENDER_SCALE};
+      DrawTexturePro(app->sprites, enemy->sprite_rect, dest, (Vector2){0.0, 0.0}, 0.0, WHITE);
     }
   }
 
@@ -315,7 +339,7 @@ void render(App_t *app) {
   EndDrawing();
 }
 
-int main(void) {
+int main(void) {
   App_t app = {0};
 
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space invaders");
@@ -329,6 +353,8 @@ int main(void) {
 
     update(&app);
     render(&app);
+
+    frames_counter %= 255;
   }
 
   CloseWindow();
