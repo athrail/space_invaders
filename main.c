@@ -6,16 +6,20 @@
 #define WINDOW_HEIGHT 800
 
 #define BULLET_COUNT 10
-#define SHOOT_DELAY 300
+#define SHOOT_DELAY 1.5
+#define BULLET_VELOCITY 200
+#define PLAYER_VELOCITY 200
+#define SCORE_PER_KILL 100
 
 #define ENEMY_PER_LINE 10
 #define ENEMY_COUNT ENEMY_PER_LINE * 5
 #define BARRIER_COUNT 4
-#define BARRIER_WIDTH 70
-#define BARRIER_HEIGHT 50
+#define BARRIER_WIDTH 70.0
+#define BARRIER_HEIGHT 50.0
 
 #define SPRITE_WIDTH 16
 #define SPRITE_HEIGHT 8
+
 
 typedef struct {
   Rectangle rect;
@@ -24,7 +28,7 @@ typedef struct {
 
 typedef struct {
   Rectangle rect;
-  int shooting_timer;
+  float shooting_timer;
 } Player_t;
 
 typedef struct {
@@ -107,6 +111,7 @@ void init_enemies(App_t *app) {
   }
 }
 
+
 void init_app(App_t *app) {
   app->background_color = (Color){0x18, 0x18, 0x18, 0xFF};
   app->font = LoadFontEx("./arcade.ttf", 20, NULL, 0);
@@ -116,10 +121,94 @@ void init_app(App_t *app) {
   init_player(app);
   init_enemies(app);
   init_barriers(app);
+
+  app->bullets = RL_CALLOC(BULLET_COUNT, sizeof(Bullet_t));
+  if (app->bullets == NULL) {
+    printf("Couldn't allocate memory for bullets...\n");
+    exit(1);
+  }
+}
+
+void spawn_bullet(App_t *app, Vector2 loc, int velocity) {
+  app->bullets[app->bullet_id].active = true;
+  app->bullets[app->bullet_id].rect = (Rectangle){loc.x, loc.y, 5, 10};
+  app->bullets[app->bullet_id].velocity = velocity;
+  app->bullet_id = (app->bullet_id + 1) % BULLET_COUNT;
+}
+
+void handle_input(App_t *app, float delta) {
+  if (IsKeyDown(KEY_LEFT)) {
+    app->player.rect.x = app->player.rect.x > 0 ? app->player.rect.x - (PLAYER_VELOCITY * delta) : 0;
+  }
+  if (IsKeyDown(KEY_RIGHT)) {
+    app->player.rect.x = app->player.rect.x < WINDOW_WIDTH - SPRITE_WIDTH ? app->player.rect.x + (PLAYER_VELOCITY * delta) : WINDOW_WIDTH - SPRITE_WIDTH;
+  }
+  if (IsKeyDown(KEY_SPACE)) {
+    if (app->player.shooting_timer <= 0) {
+      app->player.shooting_timer = SHOOT_DELAY;
+      // todo: consider bullet width when centering
+      Vector2 loc = (Vector2){app->player.rect.x + (app->player.rect.width - 5) / 2, app->player.rect.y - 10};
+      spawn_bullet(app, loc, -BULLET_VELOCITY);
+    }
+  }
 }
 
 void update(App_t *app) {
+  float delta = GetFrameTime();
+  Bullet_t *bullet = NULL;
+  Barrier_t *barrier = NULL;
+  Enemy_t *enemy = NULL;
 
+  handle_input(app, delta);
+
+  if (app->player.shooting_timer) {
+    app->player.shooting_timer -= delta;
+  }
+
+  for (size_t i = 0; i < BULLET_COUNT; i++) {
+    bullet = &app->bullets[i];
+    if (bullet->active) {
+      bullet->rect.y += (bullet->velocity * delta);
+      if ((bullet->rect.y > WINDOW_HEIGHT) || (bullet->rect.y < 0)) {
+        bullet->active = false;
+      }
+    }
+  }
+
+  // Check bullet collisions between player, enemies or barriers
+  for (size_t i = 0; i < BULLET_COUNT; i++) {
+    bullet = &app->bullets[i];
+    if (!bullet->active) continue;
+
+    for (size_t barrier_index = 0; barrier_index < BARRIER_COUNT; barrier_index++) {
+      barrier = &app->barriers[barrier_index];
+      if ((barrier->level < Destroyed) && CheckCollisionRecs(barrier->rect, bullet->rect)) {
+        barrier->level += 1;
+        barrier->rect.height -= (float)BARRIER_HEIGHT / (float)Destroyed;
+        barrier->rect.y += (float)BARRIER_HEIGHT / (float)Destroyed;
+        bullet->active = false;
+        continue;
+      }
+    }
+
+    if (bullet->velocity < 0) {
+      for (size_t enemy_index = 0; enemy_index < ENEMY_COUNT; enemy_index++) {
+        enemy = &app->enemies[enemy_index];
+        if (enemy->dead) continue;
+
+        if (CheckCollisionRecs(enemy->rect, bullet->rect)) {
+          enemy->dead = true;
+          bullet->active = false;
+          app->score += SCORE_PER_KILL;
+          break;
+        }
+      }
+    } else {
+      // Player collision detection
+    }
+  }
+
+  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
 }
 
 void render(App_t *app) {
@@ -129,14 +218,27 @@ void render(App_t *app) {
 
   DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
 
-  DrawRectangleRec(app->player.rect, (Color){255, 0, 0, 255});
+  DrawRectangleRec(app->player.rect, RED);
 
   for (size_t i = 0; i < BARRIER_COUNT; i++) {
-    DrawRectangleRec(app->barriers[i].rect, (Color){0, 255, 0, 255});
+    Barrier_t *barrier = &app->barriers[i];
+    if (barrier->level < Destroyed) {
+      DrawRectangleRec(barrier->rect, GREEN);
+    }
   }
 
   for (size_t i = 0; i < ENEMY_COUNT; i++) {
-    DrawRectangleRec(app->enemies[i].rect, (Color){255, 255, 255, 255});
+    Enemy_t *enemy = &app->enemies[i];
+    if (!enemy->dead) {
+      DrawRectangleRec(enemy->rect, WHITE);
+    }
+  }
+
+  for (size_t i = 0; i < BULLET_COUNT; i++) {
+    Bullet_t *bullet = &app->bullets[i];
+    if (bullet->active) {
+      DrawRectangleRec(bullet->rect, WHITE);
+    }
   }
 
   EndDrawing();
