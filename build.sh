@@ -1,6 +1,6 @@
 #! /bin/sh
 
-set -xe
+# set -xe
 
 CFLAGS="-Wall -Wextra -ggdb"
 CINCLUDES="-I/home/athrail/probe/raylib/raylib-5.5_linux_amd64/include"

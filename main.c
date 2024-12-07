@@ -12,23 +12,29 @@
 #define SCORE_PER_KILL 100
 
 #define ENEMY_PER_LINE 10
-#define ENEMY_COUNT ENEMY_PER_LINE * 5
+#define ENEMY_LINES 5
+#define ENEMY_COUNT ENEMY_PER_LINE * ENEMY_LINES
 #define BARRIER_COUNT 4
 #define BARRIER_WIDTH 70.0
 #define BARRIER_HEIGHT 50.0
 
 #define SPRITE_WIDTH 16
 #define SPRITE_HEIGHT 8
-
+#define PLAYER_SPRITE_X 1.0
+#define PLAYER_SPRITE_Y 49.0
+#define ENEMY_SPRITE_X 1.0
+#define ENEMY_SPRITE_Y 1.0
 
 typedef struct {
   Rectangle rect;
   bool    dead;
+  Rectangle sprite_rect;
 } Enemy_t;
 
 typedef struct {
   Rectangle rect;
   float shooting_timer;
+  Rectangle sprite_rect;
 } Player_t;
 
 typedef struct {
@@ -50,23 +56,33 @@ typedef struct {
 } Barrier_t;
 
 typedef struct {
-  Color background_color;
   Font  font;
   size_t score;
   unsigned char lives;
   char  status_text[255];
   Enemy_t *enemies;
-  size_t enemy_count;
   Player_t player;
   Barrier_t *barriers;
   Bullet_t *bullets;
   size_t bullet_id;
+  Texture2D sprites;
+  unsigned int moving_line;
+  int shift_direction;
 } App_t;
+
+int frames_counter = 0;
 
 void init_player(App_t *app) {
   app->player.rect = (Rectangle){
     (WINDOW_WIDTH - SPRITE_WIDTH) / 2,
     WINDOW_HEIGHT - 10 - SPRITE_HEIGHT,
+    SPRITE_WIDTH,
+    SPRITE_HEIGHT
+  };
+
+  app->player.sprite_rect = (Rectangle){
+    PLAYER_SPRITE_X,
+    PLAYER_SPRITE_Y,
     SPRITE_WIDTH,
     SPRITE_HEIGHT
   };
@@ -100,11 +116,17 @@ void init_enemies(App_t *app) {
   // Add maybe some static initial offset to center enemies on screen
   int spacing = (WINDOW_WIDTH - 100 - (ENEMY_PER_LINE * SPRITE_WIDTH)) / (ENEMY_PER_LINE + 1);
 
-  app->enemy_count = ENEMY_COUNT;
   for(size_t i = 0; i < ENEMY_COUNT; i++) {
     app->enemies[i].rect = (Rectangle){
       ((i % ENEMY_PER_LINE) + 1) * spacing + (i % ENEMY_PER_LINE) * SPRITE_WIDTH,
       20 + ((i / ENEMY_PER_LINE) + 1) * spacing + (i / ENEMY_PER_LINE) * SPRITE_HEIGHT,
+      SPRITE_WIDTH,
+      SPRITE_HEIGHT
+    };
+
+    app->enemies[i].sprite_rect = (Rectangle){
+      ENEMY_SPRITE_X,
+      ENEMY_SPRITE_Y,
       SPRITE_WIDTH,
       SPRITE_HEIGHT
     };
@@ -113,8 +135,10 @@ void init_enemies(App_t *app) {
 
 
 void init_app(App_t *app) {
-  app->background_color = (Color){0x18, 0x18, 0x18, 0xFF};
   app->font = LoadFontEx("./arcade.ttf", 20, NULL, 0);
+  if (!IsFontValid(app->font)) {
+    printf("ERROR: Couldn't load font!\n");
+  }
 
   sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
 
@@ -127,6 +151,14 @@ void init_app(App_t *app) {
     printf("Couldn't allocate memory for bullets...\n");
     exit(1);
   }
+
+  app->sprites = LoadTexture("sprite.png");
+  if (!IsTextureValid(app->sprites)) {
+    printf("Couldn't load sprites.\n");
+    exit(1);
+  }
+
+  app->shift_direction = 1;
 }
 
 void spawn_bullet(App_t *app, Vector2 loc, int velocity) {
@@ -167,12 +199,49 @@ void update(App_t *app) {
 
   for (size_t i = 0; i < BULLET_COUNT; i++) {
     bullet = &app->bullets[i];
-    if (bullet->active) {
-      bullet->rect.y += (bullet->velocity * delta);
-      if ((bullet->rect.y > WINDOW_HEIGHT) || (bullet->rect.y < 0)) {
-        bullet->active = false;
+    if (!bullet->active) continue;
+
+    bullet->rect.y += (bullet->velocity * delta);
+    if ((bullet->rect.y > WINDOW_HEIGHT) || (bullet->rect.y < 0)) {
+      bullet->active = false;
+    }
+  }
+
+  // Enemy movement logic
+  if (frames_counter > 30) {
+    frames_counter = 0;
+
+    if (app->shift_direction > 0) {
+      for (size_t i = ENEMY_PER_LINE - 1; i >= 0; i--) {
+        enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
+        if (enemy->dead) continue;
+
+        float destination = enemy->rect.x + SPRITE_WIDTH * app->shift_direction;
+        if (destination > WINDOW_WIDTH) {
+          app->shift_direction *= -1;
+          break;
+        }
+      }
+    } else {
+      for (size_t i = 0; i < ENEMY_PER_LINE; i++) {
+        enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
+        if (enemy->dead) continue;
+
+        float destination = enemy->rect.x + SPRITE_WIDTH * app->shift_direction;
+        if (destination < 0) {
+          app->shift_direction *= -1;
+          break;
+        }
       }
     }
+
+    for (size_t i = 0; i < ENEMY_PER_LINE; i++) {
+      enemy = &app->enemies[app->moving_line * ENEMY_PER_LINE + i];
+      if (enemy->dead) continue;
+      enemy->rect.x += SPRITE_WIDTH * app->shift_direction;
+    }
+
+    app->moving_line = (app->moving_line + 1) % ENEMY_LINES;
   }
 
   // Check bullet collisions between player, enemies or barriers
@@ -214,11 +283,12 @@ void update(App_t *app) {
 void render(App_t *app) {
   BeginDrawing();
 
-  ClearBackground(app->background_color);
+  ClearBackground(BLACK);
 
   DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
 
-  DrawRectangleRec(app->player.rect, RED);
+  Vector2 pos = {app->player.rect.x, app->player.rect.y};
+  DrawTextureRec(app->sprites, app->player.sprite_rect, pos, WHITE);
 
   for (size_t i = 0; i < BARRIER_COUNT; i++) {
     Barrier_t *barrier = &app->barriers[i];
@@ -230,7 +300,8 @@ void render(App_t *app) {
   for (size_t i = 0; i < ENEMY_COUNT; i++) {
     Enemy_t *enemy = &app->enemies[i];
     if (!enemy->dead) {
-      DrawRectangleRec(enemy->rect, WHITE);
+      Vector2 pos = {enemy->rect.x, enemy->rect.y};
+      DrawTextureRec(app->sprites, enemy->sprite_rect, pos, WHITE);
     }
   }
 
@@ -244,8 +315,7 @@ void render(App_t *app) {
   EndDrawing();
 }
 
-int main(void)
-{
+int main(void) {
   App_t app = {0};
 
   InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Space invaders");
@@ -255,6 +325,8 @@ int main(void)
 
   while (!WindowShouldClose())
   {
+    frames_counter++;
+
     update(&app);
     render(&app);
   }
