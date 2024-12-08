@@ -157,7 +157,7 @@ void reset_context(App_t *app) {
 }
 
 void init_app(App_t *app) {
-  app->font = LoadFontEx("./arcade.ttf", 20, NULL, 0);
+  app->font = LoadFontEx("./PressStart2P.ttf", 20, NULL, 0);
   if (!IsFontValid(app->font)) {
     printf("ERROR: Couldn't load font!\n");
   }
@@ -338,7 +338,7 @@ void update(App_t *app) {
 
   if (app->game_over) return;
 
-  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
+  sprintf(app->status_text, "Score %08zu           Lives %02d", app->score, app->lives);
 
   move_bullets(app, delta);
   move_enemies(app);
@@ -355,16 +355,16 @@ void render(App_t *app) {
   if (app->game_over) {
     char text[255] = {0};
 
-    Vector2 text_size = MeasureTextEx(app->font, app->status_text, 32, 12);
+    Vector2 text_size = MeasureTextEx(app->font, app->status_text, 16, 1);
     Vector2 pos = {
       (WINDOW_WIDTH - text_size.x) / 2.0,
       (WINDOW_HEIGHT - text_size.y) / 2.0,
     };
-    DrawTextEx(app->font, app->status_text, pos, 32, 12, WHITE);
+    DrawTextEx(app->font, app->status_text, pos, 16, 1, WHITE);
     goto end;
   }
 
-  DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
+  DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 16, 1, WHITE);
 
   Rectangle dest = {app->player.rect.x, app->player.rect.y, SPRITE_WIDTH, SPRITE_HEIGHT};
   DrawTexturePro(app->sprites, app->player.sprite_rect, dest, (Vector2){0.0, 0.0}, 0.0, WHITE);
