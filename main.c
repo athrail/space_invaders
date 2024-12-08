@@ -1,6 +1,8 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <raylib.h>
+#include <string.h>
 
 #define ARR_LEN(a) (sizeof(a)/sizeof(a[0]))
 #define DEBUG(format, ...) printf("%s:%d:%s() " format "\n", __FILE__, __LINE__, __FUNCTION__, ##__VA_ARGS__);
@@ -16,6 +18,7 @@
 #define SCORE_PER_KILL 100
 #define MOVE_FREQ 15
 #define SHOOT_FREQ 60
+#define STARTING_LIVES 3
 
 #define ENEMY_PER_LINE 10
 #define ENEMY_LINES 5
@@ -76,12 +79,14 @@ typedef struct {
   Texture2D sprites;
   unsigned int moving_line;
   int shift_direction;
-  Vector2 shift_offset;
+  bool game_over;
 } App_t;
 
 int frames_counter = 0;
 
-void init_player(App_t *app) {
+void reset_player(App_t *app) {
+  app->player.shooting_timer = 0;
+
   app->player.rect = (Rectangle){
     (WINDOW_WIDTH - SPRITE_WIDTH) / 2,
     WINDOW_HEIGHT - 10 - (SPRITE_HEIGHT * RENDER_SCALE),
@@ -97,12 +102,8 @@ void init_player(App_t *app) {
   };
 }
 
-void init_barriers(App_t *app) {
-  app->barriers = RL_CALLOC(BARRIER_COUNT, sizeof(Barrier_t));
-  if (app->barriers == NULL) {
-    printf("Couldn't allocate barriers data\n");
-    exit(1);
-  }
+void reset_barriers(App_t *app) {
+  memset(app->barriers, 0, BARRIER_COUNT * sizeof(Barrier_t));
 
   int spacing = (WINDOW_WIDTH - (BARRIER_COUNT * BARRIER_WIDTH)) / (BARRIER_COUNT + 1);
   for(size_t i = 0; i < BARRIER_COUNT; i++) {
@@ -115,12 +116,8 @@ void init_barriers(App_t *app) {
   }
 }
 
-void init_enemies(App_t *app) {
-  app->enemies = RL_CALLOC(ENEMY_COUNT, sizeof(Enemy_t));
-  if (app->enemies == NULL) {
-    printf("Out of RAM?\n");
-    exit(1);
-  }
+void reset_enemies(App_t *app) {
+  memset(app->enemies, 0, ENEMY_COUNT * sizeof(Enemy_t));
 
   for(size_t i = 0; i < ENEMY_COUNT; i++) {
     app->enemies[i].rect = (Rectangle){
@@ -139,32 +136,75 @@ void init_enemies(App_t *app) {
   }
 }
 
+void reset_bullets(App_t *app) {
+  memset(app->bullets, 0, BULLET_COUNT * sizeof(Bullet_t));
+}
+
+void reset_context(App_t *app) {
+  app->shift_direction = 1;
+  app->moving_line = 0;
+  app->lives = STARTING_LIVES;
+  app->score = 0;
+  app->game_over = false;
+  app->bullet_id = 0;
+
+  reset_barriers(app);
+  reset_player(app);
+  reset_enemies(app);
+  reset_bullets(app);
+
+  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
+  frames_counter = 0;
+}
+
 void init_app(App_t *app) {
   app->font = LoadFontEx("./arcade.ttf", 20, NULL, 0);
   if (!IsFontValid(app->font)) {
     printf("ERROR: Couldn't load font!\n");
   }
 
-  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
+  reset_player(app);
 
-  init_player(app);
-  init_enemies(app);
-  init_barriers(app);
+  app->enemies = RL_CALLOC(ENEMY_COUNT, sizeof(Enemy_t));
+  if (app->enemies == NULL) {
+    printf("Out of RAM?\n");
+    exit(1);
+  }
+  reset_enemies(app);
+
+  app->barriers = RL_CALLOC(BARRIER_COUNT, sizeof(Barrier_t));
+  if (app->barriers == NULL) {
+    printf("Couldn't allocate barriers data\n");
+    exit(1);
+  }
+  reset_barriers(app);
 
   app->bullets = RL_CALLOC(BULLET_COUNT, sizeof(Bullet_t));
   if (app->bullets == NULL) {
     printf("Couldn't allocate memory for bullets...\n");
     exit(1);
   }
+  reset_bullets(app);
 
   app->sprites = LoadTexture("sprite.png");
   if (!IsTextureValid(app->sprites)) {
     printf("Couldn't load sprites.\n");
     exit(1);
   }
+}
 
-  app->shift_direction = 1;
-  app->lives = 3;
+void restart(App_t *app, bool full) {
+  if (full) {
+    reset_context(app);
+    return;
+  }
+
+  if (app->lives == 0) {
+    app->game_over = true;
+    memset(app->status_text, 0, sizeof(app->status_text));
+    sprintf(app->status_text, "Game Over!\nYou scored: %08zu\nPress R to restart game...", app->score);
+    return;
+  }
 }
 
 void spawn_bullet(App_t *app, Vector2 loc, int velocity) {
@@ -189,6 +229,10 @@ void handle_input(App_t *app, float delta) {
       spawn_bullet(app, loc, -BULLET_VELOCITY);
     }
   }
+
+  if (app->game_over && IsKeyDown(KEY_R)) {
+    restart(app, true);
+  }
 }
 
 void move_bullets(App_t *app, float delta) {
@@ -203,10 +247,6 @@ void move_bullets(App_t *app, float delta) {
       bullet->active = false;
     }
   }
-}
-
-void restart(App_t *app) {
-
 }
 
 void move_enemies(App_t *app) {
@@ -264,7 +304,7 @@ void check_collisions(App_t *app) {
     } else {
       if (CheckCollisionRecs(bullet->rect, app->player.rect)) {
         app->lives -= 1;
-        restart(app);
+        restart(app, false);
         bullet->active = false;
         continue;
       }
@@ -281,7 +321,7 @@ void enemy_shoot(App_t *app) {
       enemy = &app->enemies[rand() % ENEMY_COUNT];
       if (enemy->dead) continue;
 
-      Vector2 loc = (Vector2){enemy->rect.x + (enemy->rect.width - 5) / 2, enemy->rect.y - 10};
+      Vector2 loc = (Vector2){enemy->rect.x + (enemy->rect.width - 5) / 2, enemy->rect.y + enemy->rect.height + 10};
       spawn_bullet(app, loc, BULLET_VELOCITY / 2.0);
       break;
     } while(true);
@@ -296,18 +336,34 @@ void update(App_t *app) {
   }
 
   handle_input(app, delta);
+
+  if (app->game_over) return;
+
+  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
+
   move_bullets(app, delta);
   move_enemies(app);
   check_collisions(app);
   enemy_shoot(app);
 
-  sprintf(app->status_text, "Score   %08zu       Lives   %02d", app->score, app->lives);
 }
 
 void render(App_t *app) {
   BeginDrawing();
 
   ClearBackground(BLACK);
+
+  if (app->game_over) {
+    char text[255] = {0};
+
+    Vector2 text_size = MeasureTextEx(app->font, app->status_text, 32, 12);
+    Vector2 pos = {
+      (WINDOW_WIDTH - text_size.x) / 2.0,
+      (WINDOW_HEIGHT - text_size.y) / 2.0,
+    };
+    DrawTextEx(app->font, app->status_text, pos, 32, 12, WHITE);
+    goto end;
+  }
 
   DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
 
@@ -335,7 +391,7 @@ void render(App_t *app) {
       DrawRectangleRec(bullet->rect, WHITE);
     }
   }
-
+end:
   EndDrawing();
 }
 
@@ -346,6 +402,7 @@ int main(void) {
   SetTargetFPS(60);
 
   init_app(&app);
+  reset_context(&app);
 
   while (!WindowShouldClose())
   {
