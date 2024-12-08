@@ -28,12 +28,11 @@
 #define BARRIER_WIDTH 70.0
 #define BARRIER_HEIGHT 50.0
 
-#define RENDER_SCALE 4.0
-#define SPRITE_WIDTH 12
+#define SPRITE_WIDTH 16
 #define SPRITE_HEIGHT 8
-#define PLAYER_SPRITE_X 3.0
+#define PLAYER_SPRITE_X 1.0
 #define PLAYER_SPRITE_Y 49.0
-#define ENEMY_SPRITE_X 3.0
+#define ENEMY_SPRITE_X 1.0
 #define ENEMY_SPRITE_Y 1.0
 
 typedef struct {
@@ -89,9 +88,9 @@ void reset_player(App_t *app) {
 
   app->player.rect = (Rectangle){
     (WINDOW_WIDTH - SPRITE_WIDTH) / 2,
-    WINDOW_HEIGHT - 10 - (SPRITE_HEIGHT * RENDER_SCALE),
-    SPRITE_WIDTH * RENDER_SCALE,
-    SPRITE_HEIGHT * RENDER_SCALE
+    WINDOW_HEIGHT - 10 - SPRITE_HEIGHT,
+    SPRITE_WIDTH,
+    SPRITE_HEIGHT
   };
 
   app->player.sprite_rect = (Rectangle){
@@ -121,10 +120,10 @@ void reset_enemies(App_t *app) {
 
   for(size_t i = 0; i < ENEMY_COUNT; i++) {
     app->enemies[i].rect = (Rectangle){
-      WINDOW_PADDING + (i % ENEMY_PER_LINE) + (i % ENEMY_PER_LINE) * (SPRITE_WIDTH * RENDER_SCALE),
-      80 + (i / ENEMY_PER_LINE) * 20 + (i / ENEMY_PER_LINE) * (SPRITE_HEIGHT * RENDER_SCALE),
-      SPRITE_WIDTH * RENDER_SCALE,
-      SPRITE_HEIGHT * RENDER_SCALE
+      WINDOW_PADDING + (i % ENEMY_PER_LINE) + (i % ENEMY_PER_LINE) * SPRITE_WIDTH,
+      80 + (i / ENEMY_PER_LINE) * 20 + (i / ENEMY_PER_LINE) * SPRITE_HEIGHT,
+      SPRITE_WIDTH,
+      SPRITE_HEIGHT
     };
 
     app->enemies[i].sprite_rect = (Rectangle){
@@ -367,7 +366,7 @@ void render(App_t *app) {
 
   DrawTextEx(app->font, app->status_text, (Vector2){10, 10}, 30, 1, WHITE);
 
-  Rectangle dest = {app->player.rect.x, app->player.rect.y, SPRITE_WIDTH * RENDER_SCALE, SPRITE_HEIGHT * RENDER_SCALE};
+  Rectangle dest = {app->player.rect.x, app->player.rect.y, SPRITE_WIDTH, SPRITE_HEIGHT};
   DrawTexturePro(app->sprites, app->player.sprite_rect, dest, (Vector2){0.0, 0.0}, 0.0, WHITE);
 
   for (size_t i = 0; i < BARRIER_COUNT; i++) {
@@ -380,7 +379,7 @@ void render(App_t *app) {
   for (size_t i = 0; i < ENEMY_COUNT; i++) {
     Enemy_t *enemy = &app->enemies[i];
     if (!enemy->dead) {
-      Rectangle dest = {enemy->rect.x, enemy->rect.y, SPRITE_WIDTH * RENDER_SCALE, SPRITE_HEIGHT * RENDER_SCALE};
+      Rectangle dest = {enemy->rect.x, enemy->rect.y, SPRITE_WIDTH, SPRITE_HEIGHT};
       DrawTexturePro(app->sprites, enemy->sprite_rect, dest, (Vector2){0.0, 0.0}, 0.0, WHITE);
     }
   }
