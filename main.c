@@ -37,7 +37,9 @@ typedef struct {
   int shift_direction;
   bool game_over;
   Music music;
-  Music over;
+  Sound over;
+  Sound shoot_sound;
+  Sound hit_sound;
 } App_t;
 
 int frames_counter = 0;
@@ -122,23 +124,34 @@ void init_app(App_t *app) {
     exit(1);
   }
 
-  app->over = LoadMusicStream("over.mp3");
-  if (!IsMusicValid(app->over)) {
+  app->over = LoadSound("over.mp3");
+  if (!IsSoundValid(app->over)) {
     printf("Couldn't load over.\n");
+    exit(1);
+  }
+
+  app->shoot_sound = LoadSound("laser.ogg");
+  if (!IsSoundValid(app->shoot_sound)) {
+    printf("ERROR: Cannot load shoot sound\n");
+    exit(1);
+  }
+
+  app->hit_sound = LoadSound("impact.ogg");
+  if (!IsSoundValid(app->hit_sound)) {
+    printf("ERROR: Cannot load hit sound\n");
     exit(1);
   }
 }
 
 void restart(App_t *app, bool full) {
   if (full) {
-    StopMusicStream(app->over);
     reset_context(app);
     return;
   }
 
   if (app->lives == 0) {
     StopMusicStream(app->music);
-    PlayMusicStream(app->over);
+    PlaySound(app->over);
     app->game_over = true;
     memset(app->status_text, 0, sizeof(app->status_text));
     sprintf(app->status_text, "Game Over!\nYou scored: %08zu\nPress R to restart game...", app->score);
@@ -162,6 +175,7 @@ void handle_input(App_t *app) {
       // todo: consider bullet width when centering
       Vector2 loc = (Vector2){app->player.rect.x + (app->player.rect.width - 5) / 2, app->player.rect.y - 10};
       spawn_bullet(app, loc, -BULLET_VELOCITY);
+      PlaySound(app->shoot_sound);
     }
   }
 
@@ -213,6 +227,7 @@ void check_collisions(App_t *app) {
           enemy->dead = true;
           bullet->active = false;
           app->score += SCORE_PER_KILL;
+          PlaySound(app->hit_sound);
           break;
         }
       }
@@ -221,6 +236,7 @@ void check_collisions(App_t *app) {
         app->lives -= 1;
         restart(app, false);
         bullet->active = false;
+        PlaySound(app->hit_sound);
         continue;
       }
     }
@@ -247,10 +263,10 @@ void update(App_t *app) {
   Vector2 loc = enemy_shoot(app->enemies, frames_counter);
   if (loc.x != 0.0 && loc.y != 0.0) {
     spawn_bullet(app, loc, BULLET_VELOCITY);
+    PlaySound(app->shoot_sound);
   }
 
   check_collisions(app);
-
 }
 
 void render(App_t *app) {
