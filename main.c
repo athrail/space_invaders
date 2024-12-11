@@ -1,3 +1,4 @@
+#include <time.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,8 +66,6 @@ void reset_bullets(App_t *app) {
 void reset_context(App_t *app) {
   app->shift_direction = 1;
   app->moving_line = 0;
-  app->lives = STARTING_LIVES;
-  app->score = 0;
   app->game_over = false;
   app->bullet_id = 0;
 
@@ -102,6 +101,7 @@ void init_app(App_t *app) {
     printf("Out of RAM?\n");
     exit(1);
   }
+  init_enemies(&app->sprites, app->enemies);
   reset_enemies(app->enemies);
 
   app->barriers = RL_CALLOC(BARRIER_COUNT, sizeof(Barrier_t));
@@ -145,8 +145,8 @@ void init_app(App_t *app) {
 
 void restart(App_t *app, bool full) {
   if (full) {
-    reset_context(app);
-    return;
+    app->score = 0;
+    app->lives = STARTING_LIVES;
   }
 
   if (app->lives == 0) {
@@ -157,6 +157,8 @@ void restart(App_t *app, bool full) {
     sprintf(app->status_text, "Game Over!\nYou scored: %08zu\nPress R to restart game...", app->score);
     return;
   }
+
+  reset_context(app);
 }
 
 void spawn_bullet(App_t *app, Vector2 loc, int velocity) {
@@ -228,6 +230,9 @@ void check_collisions(App_t *app) {
           bullet->active = false;
           app->score += SCORE_PER_KILL;
           PlaySound(app->hit_sound);
+          if (are_enemies_dead(app->enemies)) {
+            restart(app, false);
+          }
           break;
         }
       }
@@ -260,6 +265,7 @@ void update(App_t *app) {
   move_player(&app->player, delta);
   move_bullets(app, delta);
   move_enemies(app->enemies, frames_counter, &app->moving_line, &app->shift_direction);
+  update_enemies(app->enemies, frames_counter);
   Vector2 loc = enemy_shoot(app->enemies, frames_counter);
   if (loc.x != 0.0 && loc.y != 0.0) {
     spawn_bullet(app, loc, BULLET_VELOCITY);
@@ -314,8 +320,10 @@ int main(void) {
   InitAudioDevice();
 
   SetTargetFPS(60);
+  SetRandomSeed(time(NULL));
 
   init_app(&app);
+  app.lives = STARTING_LIVES;
   reset_context(&app);
 
   while (!WindowShouldClose())
